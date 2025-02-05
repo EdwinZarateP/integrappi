@@ -4,7 +4,7 @@ from datetime import datetime
 
 class Usuario(BaseModel):
     id: Optional[str] = None
-    nombre: str = "Edwin Zarate"
+    nombre: str = "Edwin Zarate Peña"
     email: EmailStr = "edwin@example.com"
     tenedor: Optional[str] = None
     telefono: Optional[str] = None
