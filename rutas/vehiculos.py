@@ -17,6 +17,8 @@ coleccion_vehiculos = bd['vehiculos']
 
 # Configuración de Google Cloud Storage
 BUCKET_NAME = "integrapp"
+CARPETA_STORAGE = "Vehiculos"
+
 google_credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 if not google_credentials_path:
     raise ValueError("La variable de entorno GOOGLE_APPLICATION_CREDENTIALS no está configurada.")
@@ -42,81 +44,96 @@ def optimizar_imagen(archivo: UploadFile, formato: str = "WEBP", max_width: int 
         raise HTTPException(status_code=400, detail=f"Error al optimizar la imagen: {str(e)}")
 
 # Función para subir archivos a Google Cloud Storage
-def subir_a_google_storage(archivo: UploadFile, carpeta: str = "TarjetasPropiedad") -> str:
+def subir_a_google_storage(archivo: UploadFile, nombre_archivo: str) -> str:
     try:
         cliente = storage.Client()
         bucket = cliente.bucket(BUCKET_NAME)
+        ruta_archivo = f"{CARPETA_STORAGE}/{nombre_archivo}"
+
         if archivo.content_type.startswith("image/"):
             archivo_optimizado = optimizar_imagen(archivo)
-            nombre_archivo = f"{carpeta}/{uuid4().hex}.webp"
-            blob = bucket.blob(nombre_archivo)
+            blob = bucket.blob(ruta_archivo)
             blob.upload_from_file(archivo_optimizado, content_type="image/webp")
-        else:  # Si es PDF, súbelo directamente
-            nombre_archivo = f"{carpeta}/{uuid4().hex}.pdf"
-            blob = bucket.blob(nombre_archivo)
+        else:
+            blob = bucket.blob(ruta_archivo)
             blob.upload_from_file(archivo.file, content_type="application/pdf")
         
-        return f"https://storage.googleapis.com/{BUCKET_NAME}/{nombre_archivo}"
+        return f"https://storage.googleapis.com/{BUCKET_NAME}/{ruta_archivo}"
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al subir el archivo a Google Storage: {str(e)}")
 
-# Ruta para subir la tarjeta de conducir con placa e id_usuario
-@ruta_vehiculos.post("/subir-tarjeta")
-async def subir_tarjeta(
-    archivo: UploadFile,
-    placa: str = Form(...),
-    id_usuario: str = Form(...),
-):
-    if archivo.content_type not in ["image/jpeg", "image/png", "image/webp", "application/pdf"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Solo se permiten archivos de tipo imagen (JPEG, PNG, WEBP) o PDF"
-        )
+# 1️⃣ Endpoint para crear un registro de vehículo en MongoDB
+@ruta_vehiculos.post("/crear")
+async def crear_vehiculo(id_usuario: str = Form(...), placa: str = Form(...)):
+    if coleccion_vehiculos.find_one({"placa": placa}):
+        raise HTTPException(status_code=400, detail="La placa ya está registrada.")
 
-    try:
-        # Subir a Google Cloud Storage
-        url_archivo = subir_a_google_storage(archivo)
+    nuevo_vehiculo = {
+        "id_usuario": id_usuario,
+        "placa": placa,
+        "tarjeta_propiedad": None,
+        "soat": None,
+        "revision_tecnica": None
+    }
+    
+    coleccion_vehiculos.insert_one(nuevo_vehiculo)
+    
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        content={"message": "Vehículo registrado exitosamente", "placa": placa, "id_usuario": id_usuario}
+    )
 
-        # Guardar la información en MongoDB
-        nueva_tarjeta = {
-            "placa": placa,
-            "id_usuario": id_usuario,
-            "nombre_archivo": archivo.filename,
-            "tipo": archivo.content_type,
-            "url": url_archivo
-        }
-        coleccion_vehiculos.insert_one(nueva_tarjeta)
+# 2️⃣ Endpoint para subir la Tarjeta de Propiedad
+@ruta_vehiculos.put("/subir-tarjeta")
+async def subir_tarjeta(archivo: UploadFile, placa: str = Form(...)):
+    vehiculo = coleccion_vehiculos.find_one({"placa": placa})
+    if not vehiculo:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado.")
 
-        return JSONResponse(
-            status_code=status.HTTP_201_CREATED,
-            content={
-                "message": "Archivo y datos subidos exitosamente",
-                "url": url_archivo,
-                "placa": placa,
-                "id_usuario": id_usuario
-            }
-        )
-    except HTTPException as http_exc:
-        raise http_exc
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al procesar el archivo: {str(e)}")
+    nombre_archivo = f"TarjetaPropiedad_{placa}.webp"
+    url_archivo = subir_a_google_storage(archivo, nombre_archivo)
 
-# Ruta para consultar vehículos por id_usuario
+    coleccion_vehiculos.update_one({"placa": placa}, {"$set": {"tarjeta_propiedad": url_archivo}})
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Tarjeta de Propiedad subida", "url": url_archivo})
+
+# 3️⃣ Endpoint para subir el SOAT
+@ruta_vehiculos.put("/subir-soat")
+async def subir_soat(archivo: UploadFile, placa: str = Form(...)):
+    vehiculo = coleccion_vehiculos.find_one({"placa": placa})
+    if not vehiculo:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado.")
+
+    nombre_archivo = f"Soat_{placa}.webp"
+    url_archivo = subir_a_google_storage(archivo, nombre_archivo)
+
+    coleccion_vehiculos.update_one({"placa": placa}, {"$set": {"soat": url_archivo}})
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "SOAT subido", "url": url_archivo})
+
+# 4️⃣ Endpoint para subir la Revisión Técnico-Mecánica
+@ruta_vehiculos.put("/subir-revision")
+async def subir_revision(archivo: UploadFile, placa: str = Form(...)):
+    vehiculo = coleccion_vehiculos.find_one({"placa": placa})
+    if not vehiculo:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado.")
+
+    nombre_archivo = f"Revision_{placa}.webp"
+    url_archivo = subir_a_google_storage(archivo, nombre_archivo)
+
+    coleccion_vehiculos.update_one({"placa": placa}, {"$set": {"revision_tecnica": url_archivo}})
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Revisión Técnico-Mecánica subida", "url": url_archivo})
+
+# Endpoint para consultar vehículos por id_usuario
 @ruta_vehiculos.get("/consultar-por-id-usuario/{id_usuario}")
 async def consultar_por_id_usuario(id_usuario: str):
     try:
-        # Consultar en MongoDB
         resultados = list(coleccion_vehiculos.find({"id_usuario": id_usuario}, {"_id": 0}))
 
         if not resultados:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"No se encontraron registros para el id_usuario: {id_usuario}"
-            )
+            raise HTTPException(status_code=404, detail=f"No se encontraron registros para el id_usuario: {id_usuario}")
 
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"message": "Registros encontrados", "data": resultados}
-        )
+        return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Registros encontrados", "data": resultados})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al consultar los datos: {str(e)}")
