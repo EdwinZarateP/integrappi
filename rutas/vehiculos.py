@@ -6,6 +6,7 @@ from uuid import uuid4
 from io import BytesIO
 from PIL import Image
 import os
+from typing import List
 
 # Configuración de MongoDB
 mongo_uri = os.getenv("MONGO_URI")
@@ -69,12 +70,26 @@ async def crear_vehiculo(id_usuario: str = Form(...), placa: str = Form(...)):
         raise HTTPException(status_code=400, detail="La placa ya está registrada.")
 
     nuevo_vehiculo = {
-        "id_usuario": id_usuario,
-        "placa": placa,
-        "tarjeta_propiedad": None,
-        "soat": None,
-        "revision_tecnica": None
+    "id_usuario": id_usuario,
+    "placa": placa,
+    "tarjeta_propiedad": None,
+    "soat": None,
+    "revision_tecnomecanica": None,
+    "tarjeta_remolque": None,
+    "fotos": [],  # ✅ Se inicializa como un array vacío de strings para almacenar URLs de fotos
+    "poliza_responsabilidad": None,
+    "documento_identidad": None,
+    "licencia": None,
+    "planilla_eps": None,
+    "planilla_arl": None,
+    "documento_identidad_tenedor": None,
+    "certificacion_bancaria": None,
+    "documento_acreditacion_tenedor": None,
+    "rut_tenedor": None,
+    "documento_identidad_propietario": None,
+    "rut_propietario": None
     }
+
     
     coleccion_vehiculos.insert_one(nuevo_vehiculo)
     
@@ -83,7 +98,7 @@ async def crear_vehiculo(id_usuario: str = Form(...), placa: str = Form(...)):
         content={"message": "Vehículo registrado exitosamente", "placa": placa, "id_usuario": id_usuario}
     )
 
-# 2️⃣ Endpoint para subir la Tarjeta de Propiedad
+# 2 Endpoint para subir la Tarjeta de Propiedad
 @ruta_vehiculos.put("/subir-tarjeta")
 async def subir_tarjeta(archivo: UploadFile, placa: str = Form(...)):
     vehiculo = coleccion_vehiculos.find_one({"placa": placa})
@@ -97,7 +112,7 @@ async def subir_tarjeta(archivo: UploadFile, placa: str = Form(...)):
 
     return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Tarjeta de Propiedad subida", "url": url_archivo})
 
-# 3️⃣ Endpoint para subir el SOAT
+# 3️ Endpoint para subir el SOAT
 @ruta_vehiculos.put("/subir-soat")
 async def subir_soat(archivo: UploadFile, placa: str = Form(...)):
     vehiculo = coleccion_vehiculos.find_one({"placa": placa})
@@ -111,7 +126,7 @@ async def subir_soat(archivo: UploadFile, placa: str = Form(...)):
 
     return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "SOAT subido", "url": url_archivo})
 
-# 4️⃣ Endpoint para subir la Revisión Técnico-Mecánica
+# 4️ Endpoint para subir la Revisión Técnico-Mecánica
 @ruta_vehiculos.put("/subir-revision")
 async def subir_revision(archivo: UploadFile, placa: str = Form(...)):
     vehiculo = coleccion_vehiculos.find_one({"placa": placa})
@@ -121,11 +136,51 @@ async def subir_revision(archivo: UploadFile, placa: str = Form(...)):
     nombre_archivo = f"Revision_{placa}.webp"
     url_archivo = subir_a_google_storage(archivo, nombre_archivo)
 
-    coleccion_vehiculos.update_one({"placa": placa}, {"$set": {"revision_tecnica": url_archivo}})
+    coleccion_vehiculos.update_one({"placa": placa}, {"$set": {"revision_tecnomecanica": url_archivo}})
 
     return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Revisión Técnico-Mecánica subida", "url": url_archivo})
 
-# Endpoint para consultar vehículos por id_usuario
+
+# 5 Endpoint para subir la Revisión Tarjeta de Remolque
+@ruta_vehiculos.put("/subir-tarjeta-remolque")
+async def subir_revision(archivo: UploadFile, placa: str = Form(...)):
+    vehiculo = coleccion_vehiculos.find_one({"placa": placa})
+    if not vehiculo:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado.")
+
+    nombre_archivo = f"Revision_{placa}.webp"
+    url_archivo = subir_a_google_storage(archivo, nombre_archivo)
+
+    coleccion_vehiculos.update_one({"placa": placa}, {"$set": {"tarjeta_remolque": url_archivo}})
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Tarjeta remolque subida", "url": url_archivo})
+
+# 6 Endpoint para subir varias fotos de un vehículo
+@ruta_vehiculos.put("/subir-fotos")
+async def subir_fotos(archivos: List[UploadFile], placa: str = Form(...)):
+    vehiculo = coleccion_vehiculos.find_one({"placa": placa})
+    
+    if not vehiculo:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado.")
+
+    urls_fotos = []
+
+    for archivo in archivos:
+        # Verifica que sea un archivo de imagen válido
+        if not archivo.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail=f"Formato de archivo no permitido: {archivo.filename}")
+
+        nombre_archivo = f"Foto_{placa}_{uuid4().hex}.webp"
+        url_archivo = subir_a_google_storage(archivo, nombre_archivo)
+        urls_fotos.append(url_archivo)
+
+    # Agregar las nuevas URLs al array de fotos en la base de datos
+    coleccion_vehiculos.update_one({"placa": placa}, {"$push": {"fotos": {"$each": urls_fotos}}})
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Fotos subidas correctamente", "urls": urls_fotos})
+
+
+# 7 Endpoint para consultar vehículos por id_usuario
 @ruta_vehiculos.get("/consultar-por-id-usuario/{id_usuario}")
 async def consultar_por_id_usuario(id_usuario: str):
     try:
@@ -137,3 +192,4 @@ async def consultar_por_id_usuario(id_usuario: str):
         return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Registros encontrados", "data": resultados})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al consultar los datos: {str(e)}")
+
