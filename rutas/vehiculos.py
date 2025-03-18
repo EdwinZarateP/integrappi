@@ -80,6 +80,8 @@ async def crear_vehiculo(id_usuario: str = Form(...), placa: str = Form(...)):
     nuevo_vehiculo = {
         "idUsuario": id_usuario,
         "placa": placa,
+        "estadoIntegra": "creado",
+        "usuarioIntegra": None,
         "fotos": [],
         "tarjetaPropiedad": None,
         "soat": None,
@@ -272,3 +274,24 @@ async def actualizar_informacion_vehiculo(placa: str, datos: dict):
         return JSONResponse(status_code=200, content={"message": "No se realizaron cambios en el vehículo."})
     
     return JSONResponse(status_code=200, content={"message": "Información del vehículo actualizada exitosamente"})
+
+
+# Endpoint para actualizar el estado de estadoIntegra
+@ruta_vehiculos.put("/actualizar-estado")
+async def actualizar_estado(placa: str = Form(...), nuevo_estado: str = Form(...), usuario_id: str = Form(...)):
+    """
+    Actualiza el estado de estadoIntegra y guarda el usuario que hizo el cambio.
+    """
+    vehiculo = coleccion_vehiculos.find_one({"placa": placa})
+    if not vehiculo:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado.")
+    
+    coleccion_vehiculos.update_one(
+        {"placa": placa},
+        {"$set": {"estadoIntegra": nuevo_estado, "usuarioIntegra": usuario_id}}
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"message": f"Estado actualizado a '{nuevo_estado}' por el usuario '{usuario_id}'"}
+    )
