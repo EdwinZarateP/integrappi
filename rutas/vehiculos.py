@@ -275,7 +275,6 @@ async def actualizar_informacion_vehiculo(placa: str, datos: dict):
     
     return JSONResponse(status_code=200, content={"message": "Información del vehículo actualizada exitosamente"})
 
-
 # Endpoint para actualizar el estado de estadoIntegra
 @ruta_vehiculos.put("/actualizar-estado")
 async def actualizar_estado(placa: str = Form(...), nuevo_estado: str = Form(...), usuario_id: str = Form(...)):
