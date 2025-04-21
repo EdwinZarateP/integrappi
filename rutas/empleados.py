@@ -3,8 +3,9 @@
 import os
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Union
 from pymongo import MongoClient
+from datetime import datetime
 
 # ——— Configuración de MongoDB ———
 mongo_uri = os.getenv("MONGO_URI")
@@ -30,14 +31,37 @@ class Empleado(BaseModel):
 
 # ——— Función para mapear y castear todos los campos ———
 def transformar_empleado(doc: dict) -> Empleado:
+    # Nombre completo
+    partes_nombre = [
+        doc.get("primer_nombre"),
+        doc.get("segundo_nombre"),
+        doc.get("primer_apellido"),
+        doc.get("segundo_apellido"),
+    ]
+    nombre_completo = " ".join(filter(None, partes_nombre)) or None
+
+    # Identificación como string
+    id_val: Union[int, float, str] = doc.get("identificacion", "")
+    if isinstance(id_val, (int, float)):
+        identificacion_str = str(int(id_val))
+    else:
+        identificacion_str = str(id_val)
+
+    # Fecha de ingreso en ISO
+    fecha_ing = doc.get("fecha_ingreso")
+    if isinstance(fecha_ing, datetime):
+        fecha_ing_str = fecha_ing.isoformat()
+    else:
+        fecha_ing_str = None
+
     return Empleado(
         id=str(doc.get("_id")),
-        nombre=doc.get("nombre"),
-        identificacion=str(doc.get("identificacion", "")),  # ← fuerza a string
-        cargo=doc.get("cargo"),
-        salario=doc.get("salario"),
-        fechaIngreso=doc.get("fechaIngreso"),
-        tipoContrato=doc.get("tipoContrato"),
+        nombre=nombre_completo,
+        identificacion=identificacion_str,
+        cargo=doc.get("cargo_laboral"),
+        salario=doc.get("salario_mes"),
+        fechaIngreso=fecha_ing_str,
+        tipoContrato=doc.get("tipo_contrato"),
     )
 
 # ——— APIRouter ———
@@ -54,7 +78,7 @@ async def getEmpleados():
 
 @ruta_empleado.get("/buscar", response_model=Empleado)
 async def getEmpleadoPorIdentificacion(identificacion: str):
-    # buscás con string, pero si en Mongo está guardado como número, pymongo hace la conversión interna
+    # Pymongo convertirá la query si guardaste número o string
     doc = coleccion_empleados.find_one({"identificacion": identificacion})
     if not doc:
         raise HTTPException(
