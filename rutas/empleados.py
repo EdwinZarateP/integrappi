@@ -1,11 +1,11 @@
 # rutas/empleados.py
 
 import os
+import math
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional, List, Union
 from pymongo import MongoClient
-from datetime import datetime
 
 # ——— Configuración de MongoDB ———
 mongo_uri = os.getenv("MONGO_URI")
@@ -29,30 +29,35 @@ class Empleado(BaseModel):
     class Config:
         orm_mode = True
 
-# ——— Función para mapear y castear todos los campos ———
+# ——— Función de transformación ———
 def transformar_empleado(doc: dict) -> Empleado:
     # Nombre completo
-    partes_nombre = [
+    partes = [
         doc.get("primer_nombre"),
         doc.get("segundo_nombre"),
         doc.get("primer_apellido"),
         doc.get("segundo_apellido"),
     ]
-    nombre_completo = " ".join(filter(None, partes_nombre)) or None
+    nombre_completo = " ".join(filter(None, partes)) or None
 
-    # Identificación como string
+    # Identificación → string y manejamos NaN
     id_val: Union[int, float, str] = doc.get("identificacion", "")
     if isinstance(id_val, (int, float)):
-        identificacion_str = str(int(id_val))
+        if isinstance(id_val, float) and math.isnan(id_val):
+            identificacion_str = ""
+        else:
+            identificacion_str = str(int(id_val))
     else:
         identificacion_str = str(id_val)
 
-    # Fecha de ingreso en ISO
-    fecha_ing = doc.get("fecha_ingreso")
-    if isinstance(fecha_ing, datetime):
-        fecha_ing_str = fecha_ing.isoformat()
-    else:
+    # Fecha de ingreso → mantiene cadena o convierte datetime
+    fecha_raw = doc.get("fecha_ingreso")
+    if fecha_raw is None:
         fecha_ing_str = None
+    elif hasattr(fecha_raw, "isoformat"):
+        fecha_ing_str = fecha_raw.isoformat()
+    else:
+        fecha_ing_str = str(fecha_raw)
 
     return Empleado(
         id=str(doc.get("_id")),
@@ -68,7 +73,7 @@ def transformar_empleado(doc: dict) -> Empleado:
 ruta_empleado = APIRouter(
     prefix="/empleados",
     tags=["Empleados"],
-    responses={status.HTTP_404_NOT_FOUND: {"message": "No encontrado"}}
+    responses={status.HTTP_404_NOT_FOUND: {"message": "No encontrado"}},
 )
 
 @ruta_empleado.get("/", response_model=List[Empleado])
@@ -78,8 +83,11 @@ async def getEmpleados():
 
 @ruta_empleado.get("/buscar", response_model=Empleado)
 async def getEmpleadoPorIdentificacion(identificacion: str):
-    # Pymongo convertirá la query si guardaste número o string
-    doc = coleccion_empleados.find_one({"identificacion": identificacion})
+    # Primero intentamos buscar como número, luego como cadena
+    doc = (
+        coleccion_empleados.find_one({"identificacion": float(identificacion)}) or
+        coleccion_empleados.find_one({"identificacion": identificacion})
+    )
     if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
