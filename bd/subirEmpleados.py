@@ -1,22 +1,12 @@
 import pandas as pd
 from pymongo import MongoClient
-import os
-import sys
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 import warnings
 
 # Ignorar advertencias de openpyxl
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
-# Función para obtener la ruta actual del script o ejecutable
-def get_current_path():
-    if getattr(sys, 'frozen', False):  # Si se ejecuta como .exe
-        return os.path.dirname(sys.executable)
-    else:
-        return os.path.dirname(os.path.abspath(__file__))
-
-# Función para mostrar mensajes emergentes
 def show_message(title, message, is_success=True):
     root = tk.Tk()
     root.withdraw()
@@ -28,19 +18,25 @@ def show_message(title, message, is_success=True):
 def upload_empleados():
     try:
         # Conexión a MongoDB Atlas
-        client = MongoClient("mongodb+srv://integra:integra2025@integrappi.agvcg.mongodb.net/?retryWrites=true&w=majority&appName=integrappi")
+        client = MongoClient(
+            "mongodb+srv://integra:integra2025@integrappi.agvcg.mongodb.net/?retryWrites=true&w=majority&appName=integrappi"
+        )
         db = client["integra"]
         collection = db["empleados"]
 
         # Eliminar documentos existentes
         collection.delete_many({})
 
-        # Obtener ruta del archivo
-        current_path = get_current_path()
-        file_path = os.path.join(current_path, "empleados.xlsx")
-
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"No se encontró el archivo 'empleados.xlsx' en: {file_path}")
+        # Pedir al usuario que seleccione el archivo Excel
+        root = tk.Tk()
+        root.withdraw()
+        file_path = filedialog.askopenfilename(
+            title="Seleccione el archivo de empleados",
+            filetypes=[("Archivos de Excel", "*.xlsx *.xls")]
+        )
+        if not file_path:
+            show_message("Operación cancelada", "No se seleccionó ningún archivo.", is_success=False)
+            return
 
         # Leer Excel
         df = pd.read_excel(file_path)
