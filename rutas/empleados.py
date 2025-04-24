@@ -1,3 +1,5 @@
+# Dependencias necesarias:
+# pip install fastapi uvicorn pymongo reportlab resend
 import os
 import io
 from fastapi import APIRouter, HTTPException, status
